@@ -10,6 +10,7 @@ import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import com.music.bitchord.data.listentogether.ListenTogether
+import com.music.bitchord.data.TrackLog
 import com.music.bitchord.data.settings.AppSettings
 import com.music.bitchord.data.settings.MixBlend
 import com.music.bitchord.data.settings.MixDeck
@@ -2499,6 +2500,7 @@ class CrossfadeController(
         if (verdict == lastLoopVerdict) return
         lastLoopVerdict = verdict
         Log.d(TAG, "loop $verdict")
+        TrackLog.d(TAG, "loop $verdict")
     }
 
     /** "out 4-bar, clear by lyrics · in 2-bar, clear by mask · 111 → 85 BPM over 11 bars". */
@@ -2580,6 +2582,7 @@ class CrossfadeController(
                 return@launch
             }
             Log.d(TAG, "loop decks built in ${SystemClock.elapsedRealtime() - began}ms")
+            TrackLog.d(TAG, "loop decks built in ${SystemClock.elapsedRealtime() - began}ms")
             armLoop(session, out, into, nextIndex, outPort, inPort)
         }
     }
@@ -2662,7 +2665,7 @@ class CrossfadeController(
         val out = outgoing ?: return loopBail("no outgoing player")
         val into = incoming ?: return loopBail("no incoming player")
         val sessionPlayer = if (handedOff) into else out
-        if (session.outPort.interrupted || (loopIncomingStarted && session.inPort.interrupted)) {
+        if ((!handedOff && session.outPort.interrupted) || (loopIncomingStarted && session.inPort.interrupted)) {
             return loopBail("a sink was flushed", settle = false)
         }
         if (!sessionPlayer.playWhenReady) return loopBail("paused", settle = true)
@@ -2798,6 +2801,7 @@ class CrossfadeController(
     private fun loopBail(reason: String, settle: Boolean = true) {
         val session = loopSession
         Log.d(TAG, "loop mix stops ($phase): $reason")
+        TrackLog.d(TAG, "loop mix stops ($phase): $reason")
         loopBuildJob?.cancel()
         loopBuildJob = null
         loopAlignJob?.cancel()
@@ -2831,6 +2835,7 @@ class CrossfadeController(
     /** The loop mix isn't happening after all: the pair takes the planner's blend instead. */
     private fun loopFallBack(reason: String) {
         Log.d(TAG, "loop mix falls back to a blend: $reason")
+        TrackLog.d(TAG, "loop mix falls back to a blend: $reason")
         loopPlanned = null
         loopRefusal = reason
         loopBail(reason, settle = false)
@@ -4280,9 +4285,9 @@ class CrossfadeController(
 
         /** The loop mix's setup: how far ahead its loop must start, and when its decks start building. */
         const val LOOP_SETUP_SECONDS = 15.0
-        const val LOOP_ARM_LEAD_MS = 12_000L
+        const val LOOP_ARM_LEAD_MS = 22_000L
         const val LOOP_MIN_LEAD_MS = 9_000L
-        const val LOOP_BUILD_TIMEOUT_MS = 8_000L
+        const val LOOP_BUILD_TIMEOUT_MS = 13_000L
 
         /** After the incoming player starts, how long its clock settles before it is measured against the deck. */
         const val LOOP_ALIGN_SETTLE_SECONDS = 1.2

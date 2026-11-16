@@ -163,6 +163,8 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
     private val sourceAnalysisUris = ConcurrentHashMap<String, Uri>()
     private val sourceResolutions = ConcurrentHashMap.newKeySet<String>()
     private val sourceResolutionAttempted = ConcurrentHashMap.newKeySet<String>()
+    private val sourceResolutionFailedAt = ConcurrentHashMap<String, Long>()
+    private val sourceResolutionTries = ConcurrentHashMap<String, Int>()
     private val sourceResolutionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Tracks whose result came from [analyzeHead] and is waiting to be superseded. */
@@ -887,7 +889,12 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
         // track — see [SourceResolver.MIX_PARAM].
         if (SourceResolver.isPickedAddonRow(playbackUri)) return null
         sourceAnalysisUris[trackId]?.let { return it }
-        if (trackId in sourceResolutionAttempted) return null
+        if (trackId in sourceResolutionAttempted) {
+            val failedAt = sourceResolutionFailedAt[trackId] ?: return null
+            val tries = sourceResolutionTries[trackId] ?: 0
+            if (tries >= 4 || SystemClock.elapsedRealtime() - failedAt < 20_000L) return null
+            sourceResolutionAttempted.remove(trackId)
+        }
         if (!sourceResolutions.add(trackId)) return null
         val target = SourceResolver.targetIn(playbackUri)
         sourceResolutionScope.launch {
@@ -898,9 +905,13 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
                     Log.d(TAG, "Automix analysis for $trackId will use YouTube Opus ${match.videoId}")
                 } else {
                     Log.d(TAG, "No YouTube match for Automix analysis of $trackId")
+                    sourceResolutionFailedAt[trackId] = SystemClock.elapsedRealtime()
+                    sourceResolutionTries.merge(trackId, 1) { a, b -> a + b }
                 }
             } catch (error: Throwable) {
                 Log.d(TAG, "YouTube match failed for Automix analysis of $trackId: ${error.message}")
+                sourceResolutionFailedAt[trackId] = SystemClock.elapsedRealtime()
+                sourceResolutionTries.merge(trackId, 1) { a, b -> a + b }
             } finally {
                 sourceResolutionAttempted.add(trackId)
                 sourceResolutions.remove(trackId)
@@ -1561,6 +1572,8 @@ class TrackAnalyzer(private val context: Context, private val cache: AudioCache)
         sourceAnalysisUris.clear()
         sourceResolutions.clear()
         sourceResolutionAttempted.clear()
+        sourceResolutionFailedAt.clear()
+        sourceResolutionTries.clear()
         headAttempts.clear()
         headSkipLogged.clear()
         provisional.clear()

@@ -98,6 +98,7 @@ object LoopMix {
 
     /** Element <-> deck handovers: identical audio crossed this quickly is heard as one. */
     const val HANDOVER_SEC = 0.025
+    const val HANDOFF_MARGIN_SEC = 3.0
     const val BASS_CUT_DB = -18.0
     const val HIGH_PASS_FROM_HZ = 20.0
     const val HIGH_PASS_TO_HZ = 1500.0
@@ -182,13 +183,14 @@ object LoopMix {
         // outgoing: the latest instrumental loop that ends before the song does
         val outEnd = outDuration - 0.5
         val outFirst = max(earliestOutSec, outDuration - OUT_SEARCH_SEC)
-        val outPick = firstClean(
-            candidates = { bars -> loopsBetween(out.tailBeats, outGrid, outFirst, outEnd, bars).asReversed() },
+        fun pickOut(end: Double) = firstClean(
+            candidates = { bars -> loopsBetween(out.tailBeats, outGrid, outFirst, end, bars).asReversed() },
             analysis = out,
             sung = sungOut,
             beatSec = outGrid.beatSec,
             count = outCount,
-        ) ?: return null.also { why?.append("outgoing: ")?.append(outCount) }
+        )
+        var outPick = pickOut(outEnd) ?: return null.also { why?.append("outgoing: ")?.append(outCount) }
 
         // incoming: the earliest instrumental loop in its opening
         val inEnd = min(IN_SEARCH_SEC + LOOP_BARS * inGrid.barSec, inDuration - 20)
@@ -208,6 +210,14 @@ object LoopMix {
         val fold = doubleArrayOf(1.0, 2.0, 0.5).minBy { abs(ln(inBpm / it / outBpm)) }
         val target = inBpm / fold
         val rampBars = ceil(abs(target - outBpm) / MAX_BPM_PER_BAR).toInt().coerceIn(MIN_RAMP_BARS, MAX_RAMP_BARS)
+        val slowBarSec = max(outBeat, inBeat * fold) * 4
+        val handoffSec = (ENTER_BARS + rampBars / 2.0) * slowBarSec
+        val latestStart = outDuration - handoffSec - HANDOFF_MARGIN_SEC
+        if (outPick.start > latestStart) {
+            outPick = pickOut(latestStart) ?: return null.also {
+                why?.append("outgoing: no loop early enough for the mix to hand over before the song ends")
+            }
+        }
         // the incoming loop lets go only at its own loop boundary: round the mix up to whole incoming loops
         val inLoopOutBars = inPick.bars / fold
         val totalBars = (ceil((ENTER_BARS + rampBars + EXIT_BARS) / inLoopOutBars) * inLoopOutBars).roundToInt()
