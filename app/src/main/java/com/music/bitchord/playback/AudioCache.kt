@@ -1936,10 +1936,15 @@ object AudioCache {
                     // the read-ahead chatter around it: every cause below
                     // already logs its own message at debug, but nothing said
                     // where a round ended or what it had to work with.
+                    val headWatch = Uri.parse("bitchord://watch?v=$videoId")
+                    val headOpus = Uri.parse(AutomixAnalysisSource.opusUri(videoId))
+                    val headCopies = renditionsOf(headWatch).joinToString { "${it.key}=${it.cachedPrefix}" }
                     TrackLog.w(
                         TAG,
                         "analysis head for $videoId came up short: " +
                             "held=$held want=$want total=$total " +
+                            "opus=${cachedPrefixBytes(headOpus)} watch=${cachedPrefixBytes(headWatch)} " +
+                            "copies=[$headCopies] " +
                             "(cause in the read-ahead lines around this one)",
                         videoId,
                     )

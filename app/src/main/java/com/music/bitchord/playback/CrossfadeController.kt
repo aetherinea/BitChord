@@ -2524,6 +2524,15 @@ class CrossfadeController(
         return "out ${side(plan.out)} · in ${side(plan.inn)} · $tempo$fold"
     }
 
+    private var lastBeginSkip: String? = null
+
+    private fun noteBeginSkip(why: String) {
+        if (why == lastBeginSkip) return
+        lastBeginSkip = why
+        Log.d(TAG, "loop build held back: $why")
+        TrackLog.d(TAG, "loop build held back: $why")
+    }
+
     /**
      * Starts building the decks, [LOOP_ARM_LEAD_MS] before the loop: decoding
      * both regions and loading the renderer happen off the main thread, then
@@ -2538,11 +2547,12 @@ class CrossfadeController(
         nextDurationMs: Long,
     ) {
         val into = standby()
-        if (out === into) return
+        if (out === into) { noteBeginSkip("standby player is the playing player"); return }
         val nextIndex = out.nextMediaItemIndex
-        if (nextIndex == C.INDEX_UNSET) return
-        val outPort = loopPortOf(out) ?: return
-        val inPort = loopPortOf(into) ?: return
+        if (nextIndex == C.INDEX_UNSET) { noteBeginSkip("no next item queued"); return }
+        val outPort = loopPortOf(out) ?: run { noteBeginSkip("outgoing player has no loop port"); return }
+        val inPort = loopPortOf(into) ?: run { noteBeginSkip("standby player has no loop port"); return }
+        lastBeginSkip = null
         endEase(clickless = false)
         phase = Phase.LOOP_ARMING
         smartFadeActive = true
@@ -2555,11 +2565,10 @@ class CrossfadeController(
         val sampleRate = outPort.sampleRate
         val inLevel = (loudnessGain(inItem.mediaId) / loudnessGain(outItem.mediaId))
             .takeIf { it.isFinite() && it > 0f } ?: 1f
-        Log.d(
-            TAG,
-            "loop build ${outItem.mediaId}->${inItem.mediaId} at ${sampleRate}Hz, loop at " +
-                "${"%.2f".format(Locale.ROOT, plan.out.loopStart)}s, playhead ${out.currentPosition}ms",
-        )
+        val buildNote = "loop build ${outItem.mediaId}->${inItem.mediaId} at ${sampleRate}Hz, loop at " +
+            "${"%.2f".format(Locale.ROOT, plan.out.loopStart)}s, playhead ${out.currentPosition}ms"
+        Log.d(TAG, buildNote)
+        TrackLog.d(TAG, buildNote)
         loopBuildJob = scope.launch {
             val began = SystemClock.elapsedRealtime()
             val session = withContext(Dispatchers.Default) {
@@ -2622,12 +2631,11 @@ class CrossfadeController(
         loopIncomingStarted = false
         lastLoopPositionMs = -1L
         lastLoopBeat = -1
-        Log.d(
-            TAG,
-            "loop armed: takeover at ${session.takeoverUs}us (stream offset ${outPort.streamOffsetUs}us), " +
-                "incoming from ${"%.3f".format(Locale.ROOT, session.inStartTrack)}s, handover at " +
-                "${"%.3f".format(Locale.ROOT, session.handoverTrack)}s, mix ${"%.1f".format(Locale.ROOT, session.clock.elementAt)}s",
-        )
+        val armedNote = "loop armed: takeover at ${session.takeoverUs}us (stream offset ${outPort.streamOffsetUs}us), " +
+            "incoming from ${"%.3f".format(Locale.ROOT, session.inStartTrack)}s, handover at " +
+            "${"%.3f".format(Locale.ROOT, session.handoverTrack)}s, mix ${"%.1f".format(Locale.ROOT, session.clock.elementAt)}s"
+        Log.d(TAG, armedNote)
+        TrackLog.d(TAG, armedNote)
     }
 
     /** Waits for the outgoing sink to splice over to the renderer. */
@@ -2656,7 +2664,12 @@ class CrossfadeController(
             return
         }
         val m = session.mixSeconds(System.nanoTime(), out.isPlaying) ?: return
-        if (m > 1.0) loopBail("the sink never reached the loop")
+        if (m > 1.0) {
+            loopBail(
+                "the sink never reached the loop (${"%.1f".format(Locale.ROOT, m)}s past the loop point, " +
+                    "playhead ${out.currentPosition}ms)",
+            )
+        }
     }
 
     /** The mix is running: starts the incoming player, aligns it, hands the session over, and ends. */
