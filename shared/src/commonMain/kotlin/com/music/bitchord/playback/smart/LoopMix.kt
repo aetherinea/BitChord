@@ -209,10 +209,14 @@ object LoopMix {
 
         val fold = doubleArrayOf(1.0, 2.0, 0.5).minBy { abs(ln(inBpm / it / outBpm)) }
         val target = inBpm / fold
-        val rampBars = ceil(abs(target - outBpm) / MAX_BPM_PER_BAR).toInt().coerceIn(MIN_RAMP_BARS, MAX_RAMP_BARS)
+        val wantedRampBars = ceil(abs(target - outBpm) / MAX_BPM_PER_BAR).toInt().coerceIn(MIN_RAMP_BARS, MAX_RAMP_BARS)
         val slowBarSec = max(outBeat, inBeat * fold) * 4
-        val handoffSec = (ENTER_BARS + rampBars / 2.0) * slowBarSec
-        val latestStart = outDuration - handoffSec - HANDOFF_MARGIN_SEC
+        fun latestStartFor(ramp: Int) = outDuration - (ENTER_BARS + ramp / 2.0) * slowBarSec - HANDOFF_MARGIN_SEC
+        // A late instrumental loop can still hand over before the song ends if the
+        // tempo ramp is shortened, which beats giving up and crossfading.
+        var rampBars = wantedRampBars
+        while (rampBars > MIN_RAMP_BARS && outPick.start > latestStartFor(rampBars)) rampBars--
+        val latestStart = latestStartFor(rampBars)
         if (outPick.start > latestStart) {
             outPick = pickOut(latestStart) ?: return null.also {
                 why?.append("outgoing: no loop early enough for the mix to hand over before the song ends")
