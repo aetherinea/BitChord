@@ -1133,7 +1133,18 @@ class CrossfadeController(
         val loop = loopPlanFor(
             player, currentItem, nextItem, currentAnalysis, nextAnalysis, duration, nextDuration, analysisState,
         )
-        if (loop != null && nextStreamReady(nextItem)) {
+        val loopNextReady = loop != null && nextStreamReady(nextItem)
+        if (loop != null && !loopNextReady) {
+            noteBeginSkip("next stream not ready (loop planned at ${"%.2f".format(Locale.ROOT, loop.out.loopStart)}s)")
+        } else if (loop != null && lastBeginSkip?.startsWith("next stream not ready") == true) {
+            lastBeginSkip = null
+            TrackLog.d(
+                TAG,
+                "loop: next stream ready, playhead ${player.currentPosition}ms, " +
+                    "loop at ${"%.2f".format(Locale.ROOT, loop.out.loopStart)}s",
+            )
+        }
+        if (loop != null && loopNextReady) {
             val loopStartMs = (loop.out.loopStart * 1000).roundToLong()
             AppSettings.smartTransitionWindow.value = TransitionWindow(
                 start = (loopStartMs.toFloat() / duration).coerceIn(0f, 1f),
