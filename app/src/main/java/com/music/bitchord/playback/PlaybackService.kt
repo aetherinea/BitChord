@@ -3472,6 +3472,11 @@ class PlaybackService : MediaLibraryService() {
         // Back restarts the track once you're this far into it; only a
         // press before that steps to the previous one.
         .setMaxSeekToPreviousPositionMs(BACK_RESTARTS_AFTER_MS)
+        // During a loop mix the incoming player is playing but its audio is held
+        // inside the mix sink, so its position does not move for the whole ramp.
+        // Media3's default 10 s stuck-playing check read that as a dead player,
+        // raised ERROR_CODE_TIMEOUT, killed the mix and restarted the track.
+        .setStuckPlayingDetectionTimeoutMs(60_000)
         .build()
 
     /**
